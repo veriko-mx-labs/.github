@@ -7,3 +7,4 @@ rules:
     check-keys: false
   comments:
     min-spaces-from-content: 1
+
