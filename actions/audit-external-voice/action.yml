@@ -1,0 +1,31 @@
+name: Auditar la voz externa de Veriko
+description: Revisa el léxico público y las reglas mecánicas en la prosa del repositorio.
+
+inputs:
+  lexicon-url:
+    description: URL del catálogo público de reglas de voz.
+    required: false
+    default: https://docs.veriko.mx/voz-lexico.json
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: "3.12"
+
+    - name: Descargar el léxico público
+      shell: bash
+      env:
+        LEXICON_URL: ${{ inputs.lexicon-url }}
+      run: >-
+        curl --fail --silent --show-error --location
+        --retry 3 --retry-all-errors
+        "$LEXICON_URL" --output "$RUNNER_TEMP/veriko-voz-lexico.json"
+
+    - name: Auditar la prosa externa
+      shell: bash
+      run: >-
+        python "$GITHUB_ACTION_PATH/audit_external_voice.py"
+        --root "$GITHUB_WORKSPACE"
+        --lexicon "$RUNNER_TEMP/veriko-voz-lexico.json"

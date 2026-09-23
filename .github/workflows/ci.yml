@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  python:
+    name: Pruebas de Python
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Instalar el lector de YAML
+        run: python -m pip install --disable-pip-version-check --quiet PyYAML==6.0.2
+
+      - name: Auditoría de la voz externa
+        run: python -m unittest discover -s actions/audit-external-voice -p 'test_*.py' -v
+
+      - name: Validador del spec público
+        run: python -m unittest discover -s actions/sync-public-spec -p 'test_*.py' -v
+
+      - name: Comprobación de autoría
+        run: python -m unittest discover -s actions/verify-authorship -p 'test_*.py' -v
+
+      - name: Verificador de acciones fijadas
+        run: python -m unittest discover -s ci -p 'test_*.py' -v
+
+  autoria:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/autoria.yml
+    secrets:
+      config: ${{ secrets.VERIKO_LABS_AUTORIA_CONFIG }}
+
+  shell:
+    name: Análisis del shell
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Instalar ShellCheck
+        run: python -m pip install --disable-pip-version-check --quiet shellcheck-py==0.11.0.1
+
+      - name: Sintaxis
+        run: bash -n actions/sync-public-spec/sync_public_spec.sh
+
+      - name: ShellCheck
+        run: shellcheck actions/sync-public-spec/sync_public_spec.sh
+
+  yaml:
+    name: YAML y acciones fijadas
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Instalar yamllint
+        run: python -m pip install --disable-pip-version-check --quiet yamllint==1.38.0
+
+      - name: Validar los YAML
+        run: yamllint --strict .
+
+      - name: Comprobar que las acciones estén fijadas a un SHA
+        run: python ci/check_pinned_actions.py .

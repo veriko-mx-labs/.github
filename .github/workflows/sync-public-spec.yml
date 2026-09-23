@@ -1,0 +1,160 @@
+name: Sincronizar el spec público
+
+on:
+  workflow_call:
+    inputs:
+      spec_path:
+        description: Ruta de la copia versionada del spec.
+        required: false
+        type: string
+        default: spec/openapi.yaml
+      regenerate_command:
+        description: Comando que regenera los archivos derivados del spec.
+        required: true
+        type: string
+      auto_merge:
+        description: Activa el auto-merge cuando todo el CI queda verde.
+        required: false
+        type: boolean
+        default: false
+      sync_branch:
+        description: Rama estable que usa el bot para el PR de sincronización.
+        required: false
+        type: string
+        default: automation/sync-public-spec
+      base_branch:
+        description: Rama base; permite probar el recorrido completo sin tocar main.
+        required: false
+        type: string
+        default: main
+    secrets:
+      app_id:
+        required: true
+      app_private_key:
+        required: true
+
+permissions:
+  contents: read
+
+# Los scripts salen del mismo commit que este workflow (job.workflow_sha), no de
+# una rama móvil. Los pasos reproducen los de actions/audit-external-voice y
+# actions/sync-public-spec, que siguen disponibles como acciones sueltas.
+jobs:
+  audit-external-voice:
+    name: Auditar la voz externa
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Obtener los scripts del commit de este workflow
+        shell: bash
+        env:
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$WORKFLOW_REPOSITORY" != 'veriko-mx-labs/.github' ]]; then
+            echo "::error::El workflow reusable viene de '$WORKFLOW_REPOSITORY', no de veriko-mx-labs/.github."
+            exit 1
+          fi
+          if [[ ! "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::job.workflow_sha no es un SHA completo: '$WORKFLOW_SHA'."
+            exit 1
+          fi
+          source_dir="$RUNNER_TEMP/veriko-workflow"
+          git init --quiet "$source_dir"
+          git -C "$source_dir" fetch --quiet --depth 1 \
+            "https://github.com/${WORKFLOW_REPOSITORY}.git" "$WORKFLOW_SHA"
+          git -C "$source_dir" -c advice.detachedHead=false checkout --quiet FETCH_HEAD
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "$WORKFLOW_SHA"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Descargar el léxico público
+        shell: bash
+        run: >-
+          curl --fail --silent --show-error --location
+          --retry 3 --retry-all-errors
+          "https://docs.veriko.mx/voz-lexico.json"
+          --output "$RUNNER_TEMP/veriko-voz-lexico.json"
+
+      - name: Aplicar el léxico y la mecánica compartidos
+        shell: bash
+        run: >-
+          python "$RUNNER_TEMP/veriko-workflow/actions/audit-external-voice/audit_external_voice.py"
+          --root "$GITHUB_WORKSPACE"
+          --lexicon "$RUNNER_TEMP/veriko-voz-lexico.json"
+
+  sync:
+    name: Descargar, verificar y proponer
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Crear un token efímero de veriko-labs
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.app_id }}
+          private-key: ${{ secrets.app_private_key }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.repository }}
+          permission-actions: read
+          permission-checks: read
+          permission-contents: write
+          permission-pull-requests: write
+          permission-statuses: read
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Obtener los scripts del commit de este workflow
+        shell: bash
+        env:
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$WORKFLOW_REPOSITORY" != 'veriko-mx-labs/.github' ]]; then
+            echo "::error::El workflow reusable viene de '$WORKFLOW_REPOSITORY', no de veriko-mx-labs/.github."
+            exit 1
+          fi
+          if [[ ! "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::job.workflow_sha no es un SHA completo: '$WORKFLOW_SHA'."
+            exit 1
+          fi
+          source_dir="$RUNNER_TEMP/veriko-workflow"
+          git init --quiet "$source_dir"
+          git -C "$source_dir" fetch --quiet --depth 1 \
+            "https://github.com/${WORKFLOW_REPOSITORY}.git" "$WORKFLOW_SHA"
+          git -C "$source_dir" -c advice.detachedHead=false checkout --quiet FETCH_HEAD
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "$WORKFLOW_SHA"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Instalar el lector de YAML
+        shell: bash
+        run: python -m pip install --disable-pip-version-check --quiet PyYAML==6.0.2
+
+      - name: Sincronizar desde el artefacto público
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SPEC_PATH: ${{ inputs.spec_path }}
+          REGENERATE_COMMAND: ${{ inputs.regenerate_command }}
+          SYNC_BRANCH: ${{ inputs.sync_branch }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          AUTO_MERGE: ${{ inputs.auto_merge }}
+        run: |
+          set -euo pipefail
+          action_dir="$RUNNER_TEMP/veriko-workflow/actions/sync-public-spec"
+          export VALIDATOR="$action_dir/validate_public_spec.py"
+          bash "$action_dir/sync_public_spec.sh"

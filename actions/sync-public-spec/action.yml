@@ -1,0 +1,45 @@
+name: Sincronizar el spec público de Veriko
+description: Verifica el spec publicado, regenera sus derivados y mantiene el PR del bot.
+
+inputs:
+  github-token:
+    description: Token efímero de la App veriko-labs.
+    required: true
+  spec-path:
+    description: Ruta de la copia versionada del spec.
+    required: true
+  regenerate-command:
+    description: Comando que regenera los archivos derivados.
+    required: true
+  sync-branch:
+    description: Rama estable del PR de sincronización.
+    required: true
+  base-branch:
+    description: Rama contra la que se abre el PR.
+    required: true
+  auto-merge:
+    description: Activa el auto-merge si el CI queda verde.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: "3.12"
+
+    - name: Instalar el lector de YAML
+      shell: bash
+      run: python -m pip install --disable-pip-version-check --quiet PyYAML==6.0.2
+
+    - name: Ejecutar la sincronización
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        SPEC_PATH: ${{ inputs.spec-path }}
+        REGENERATE_COMMAND: ${{ inputs.regenerate-command }}
+        SYNC_BRANCH: ${{ inputs.sync-branch }}
+        BASE_BRANCH: ${{ inputs.base-branch }}
+        AUTO_MERGE: ${{ inputs.auto-merge }}
+        VALIDATOR: ${{ github.action_path }}/validate_public_spec.py
+      run: bash "${{ github.action_path }}/sync_public_spec.sh"
