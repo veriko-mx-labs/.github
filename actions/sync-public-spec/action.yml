@@ -18,8 +18,22 @@ inputs:
     description: Rama contra la que se abre el PR.
     required: true
   auto-merge:
-    description: Activa el auto-merge si el CI queda verde.
+    description: Activa el auto-merge si el CI queda verde. No se puede combinar con draft.
     required: true
+  draft:
+    description: Abre el PR como borrador y no lo marca como listo en actualizaciones posteriores.
+    required: false
+    default: "false"
+  reviewers:
+    description: Revisores que se piden al crear el PR (usuarios o equipos, separados por coma).
+    required: false
+    default: ""
+  summary-file:
+    description: >-
+      Ruta donde el comando de regeneración puede dejar un resumen en Markdown
+      para el cuerpo del PR. Se ofrece al comando en VERIKO_SYNC_SUMMARY_FILE.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -41,5 +55,8 @@ runs:
         SYNC_BRANCH: ${{ inputs.sync-branch }}
         BASE_BRANCH: ${{ inputs.base-branch }}
         AUTO_MERGE: ${{ inputs.auto-merge }}
+        DRAFT: ${{ inputs.draft }}
+        REVIEWERS: ${{ inputs.reviewers }}
+        SUMMARY_FILE: ${{ inputs.summary-file }}
         VALIDATOR: ${{ github.action_path }}/validate_public_spec.py
       run: bash "${{ github.action_path }}/sync_public_spec.sh"

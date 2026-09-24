@@ -13,10 +13,29 @@ on:
         required: true
         type: string
       auto_merge:
-        description: Activa el auto-merge cuando todo el CI queda verde.
+        description: Activa el auto-merge cuando todo el CI queda verde. No se puede combinar con draft.
         required: false
         type: boolean
         default: false
+      draft:
+        description: Abre el PR como borrador y no lo marca como listo en actualizaciones posteriores.
+        required: false
+        type: boolean
+        default: false
+      reviewers:
+        description: Revisores que se piden al crear el PR, como en `gh pr create --reviewer` (usuarios o equipos, separados por coma).
+        required: false
+        type: string
+        default: ""
+      summary_file:
+        description: >-
+          Ruta donde el comando de regeneración puede dejar un resumen en Markdown.
+          Se ofrece al comando en la variable de entorno VERIKO_SYNC_SUMMARY_FILE y,
+          si el archivo existe al terminar, su contenido se añade al cuerpo del PR y
+          se conserva en cada actualización posterior.
+        required: false
+        type: string
+        default: ""
       sync_branch:
         description: Rama estable que usa el bot para el PR de sincronización.
         required: false
@@ -153,6 +172,9 @@ jobs:
           SYNC_BRANCH: ${{ inputs.sync_branch }}
           BASE_BRANCH: ${{ inputs.base_branch }}
           AUTO_MERGE: ${{ inputs.auto_merge }}
+          DRAFT: ${{ inputs.draft }}
+          REVIEWERS: ${{ inputs.reviewers }}
+          SUMMARY_FILE: ${{ inputs.summary_file }}
         run: |
           set -euo pipefail
           action_dir="$RUNNER_TEMP/veriko-workflow/actions/sync-public-spec"
