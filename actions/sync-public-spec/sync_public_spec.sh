@@ -6,6 +6,14 @@ readonly BASE_BRANCH
 readonly KEEPALIVE_BRANCH='automation/keep-schedules-active'
 readonly KEEPALIVE_DAYS=45
 readonly PR_TITLE='Sincronizar el spec público'
+readonly DRAFT="${DRAFT:-false}"
+readonly REVIEWERS="${REVIEWERS:-}"
+readonly SUMMARY_FILE="${SUMMARY_FILE:-}"
+
+if [[ "$AUTO_MERGE" == 'true' && "$DRAFT" == 'true' ]]; then
+  echo '::error::auto_merge y draft no pueden ser true a la vez: el auto-merge no aplica a un borrador.' >&2
+  exit 1
+fi
 
 temporary_directory="$(mktemp -d)"
 trap 'rm -rf "$temporary_directory"' EXIT
@@ -13,6 +21,7 @@ downloaded_spec="$temporary_directory/openapi.yaml"
 body_file="$temporary_directory/pr-body.md"
 checks_file="$temporary_directory/checks.json"
 failure_file="$temporary_directory/failures.log"
+summary_content=''
 
 git config user.name 'Veriko'
 git config user.email 'soporte@veriko.mx'
@@ -43,6 +52,18 @@ maintain_schedule() {
   echo "Actividad preventiva renovada en $KEEPALIVE_BRANCH."
 }
 
+append_summary() {
+  local target="$1"
+  if [[ -n "$summary_content" ]]; then
+    {
+      echo
+      echo '## Resumen'
+      echo
+      echo "$summary_content"
+    } >> "$target"
+  fi
+}
+
 if cmp --silent "$downloaded_spec" "$SPEC_PATH"; then
   echo "$SPEC_PATH ya coincide con $SPEC_URL."
   maintain_schedule
@@ -67,7 +88,17 @@ fi
 
 mkdir -p "$(dirname "$SPEC_PATH")"
 cp "$downloaded_spec" "$SPEC_PATH"
+
+export VERIKO_SYNC_SUMMARY_FILE="$SUMMARY_FILE"
+if [[ -n "$SUMMARY_FILE" ]]; then
+  mkdir -p "$(dirname "$SUMMARY_FILE")"
+  rm -f "$SUMMARY_FILE"
+fi
 bash -euo pipefail -c "$REGENERATE_COMMAND"
+if [[ -n "$SUMMARY_FILE" && -s "$SUMMARY_FILE" ]]; then
+  summary_content="$(cat "$SUMMARY_FILE")"
+fi
+
 git add --all
 
 if ! git diff --cached --quiet; then
@@ -90,14 +121,23 @@ cat > "$body_file" <<EOF
 
 El cuerpo se actualizará con el resultado.
 EOF
+append_summary "$body_file"
 
 if [[ -z "$pr_number" ]]; then
-  pr_url="$(gh pr create \
-    --repo "$GITHUB_REPOSITORY" \
-    --base "$BASE_BRANCH" \
-    --head "$SYNC_BRANCH" \
-    --title "$PR_TITLE" \
-    --body-file "$body_file")"
+  create_args=(
+    --repo "$GITHUB_REPOSITORY"
+    --base "$BASE_BRANCH"
+    --head "$SYNC_BRANCH"
+    --title "$PR_TITLE"
+    --body-file "$body_file"
+  )
+  if [[ "$DRAFT" == 'true' ]]; then
+    create_args+=(--draft)
+  fi
+  if [[ -n "$REVIEWERS" ]]; then
+    create_args+=(--reviewer "$REVIEWERS")
+  fi
+  pr_url="$(gh pr create "${create_args[@]}")"
   pr_number="${pr_url##*/}"
 else
   gh pr edit "$pr_number" --repo "$GITHUB_REPOSITORY" --body-file "$body_file"
@@ -135,6 +175,7 @@ if ! wait_for_checks; then
 
 El PR queda abierto. Revisa si algún job no arrancó o quedó pendiente.
 EOF
+  append_summary "$body_file"
   gh pr edit "$pr_number" --repo "$GITHUB_REPOSITORY" --body-file "$body_file"
   exit 1
 fi
@@ -151,6 +192,7 @@ if (( failed_count == 0 )); then
 - Copia: \`$SPEC_PATH\`
 - CI: todos los jobs terminaron correctamente.
 EOF
+  append_summary "$body_file"
   gh pr edit "$pr_number" --repo "$GITHUB_REPOSITORY" --body-file "$body_file"
 
   if [[ "$AUTO_MERGE" == 'true' ]]; then
@@ -233,6 +275,7 @@ $(cat "$failure_file")
 
 </details>
 EOF
+append_summary "$body_file"
 
 gh pr edit "$pr_number" --repo "$GITHUB_REPOSITORY" --body-file "$body_file"
 exit 1
