@@ -42,6 +42,7 @@ class FakeGitHub:
         self.patch_error: HttpError | None = None
         self.patches: list[dict[str, Any]] = []
         self.pull_reads = 0
+        self.required = ["test"]
 
     def __call__(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         prefix = f"/repos/{REPO}"
@@ -54,6 +55,12 @@ class FakeGitHub:
             return self.pull
         if method == "GET" and path == "/git/ref/heads/main":
             return {"object": {"sha": self.main}}
+        if method == "GET" and path == "/rules/branches/main":
+            return [
+                {"type": "pull_request", "parameters": {}},
+                {"type": "required_status_checks",
+                 "parameters": {"required_status_checks": [{"context": name} for name in self.required]}},
+            ]
         if method == "GET" and path.startswith("/compare/"):
             return self.comparison
         if method == "GET" and "/check-runs" in path:
@@ -158,6 +165,38 @@ class MergeTest(unittest.TestCase):
     def test_pending_past_deadline_is_rejected(self) -> None:
         self.github.pending_polls = 100
         self.assert_fails("pendientes", wait=30)
+
+    def test_required_check_not_started_is_pending(self) -> None:
+        self.github.required = ["test", "Pruebas"]
+        self.assert_fails("pendientes: Pruebas")
+
+    def test_required_check_that_appears_while_waiting(self) -> None:
+        self.github.required = ["test", "Pruebas"]
+        original = self.github.__call__
+
+        def later(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+            if "/check-runs" in path and self.sleeps:
+                self.github.check_runs = [
+                    {"id": 1, "name": "test", "status": "completed", "conclusion": "success", "details_url": ""},
+                    {"id": 2, "name": "Pruebas", "status": "completed", "conclusion": "success", "details_url": ""},
+                ]
+            return original(method, path, body)
+
+        self.merger.request = later
+        self.assertEqual(self.merger.merge(7, 600)[0], HEAD)
+        self.assertEqual(self.sleeps, [15])
+
+    def test_required_status_counts(self) -> None:
+        self.github.required = ["test", "externo"]
+        self.github.statuses = [{"context": "externo", "state": "success"}]
+        self.assertEqual(self.merger.merge(7)[0], HEAD)
+
+    def test_latest_rerun_wins(self) -> None:
+        self.github.check_runs = [
+            {"id": 1, "name": "test", "status": "completed", "conclusion": "failure", "details_url": ""},
+            {"id": 2, "name": "test", "status": "completed", "conclusion": "success", "details_url": ""},
+        ]
+        self.assertEqual(self.merger.merge(7)[0], HEAD)
 
     def test_head_changed_during_checks_is_rejected(self) -> None:
         self.github.head_after_checks = "c" * 40

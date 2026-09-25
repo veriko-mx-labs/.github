@@ -11,7 +11,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 ORGANIZATION_IDENTITY = ("Veriko", "soporte@veriko.mx")
@@ -65,6 +65,7 @@ class Merger:
     run_id: str = ""
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], float] = time.monotonic
+    required: list[str] = field(default_factory=list)
 
     def repo(self, path: str) -> str:
         return f"/repos/{self.repository}{path}"
@@ -127,6 +128,18 @@ class Merger:
         if problems:
             raise Failure("\n".join(problems))
 
+    def required_checks(self) -> list[str]:
+        rules = self.request("GET", self.repo(f"/rules/branches/{BASE_BRANCH}"), None)
+        required: list[str] = []
+        for rule in rules or []:
+            if rule.get("type") != "required_status_checks":
+                continue
+            for check in (rule.get("parameters") or {}).get("required_status_checks") or []:
+                context = check.get("context")
+                if context and context not in required:
+                    required.append(context)
+        return required
+
     def own_run(self, check: dict[str, Any]) -> bool:
         return bool(self.run_id) and f"/actions/runs/{self.run_id}/" in str(check.get("details_url", ""))
 
@@ -139,24 +152,37 @@ class Merger:
             if len(runs) >= int(batch.get("total_count", 0)) or not batch.get("check_runs"):
                 break
             page += 1
-        runs = [check for check in runs if not self.own_run(check)]
-        if not runs:
+        latest: dict[str, dict[str, Any]] = {}
+        for check in runs:
+            if self.own_run(check):
+                continue
+            current = latest.get(check["name"])
+            if current is None or int(check.get("id", 0)) > int(current.get("id", 0)):
+                latest[check["name"]] = check
+        if not latest:
             raise Failure("La cabeza del pull request no tiene checks.")
-        pending = [check["name"] for check in runs if check.get("status") != "completed"]
+        pending = [name for name, check in latest.items() if check.get("status") != "completed"]
         failed = [
-            check["name"]
-            for check in runs
+            name
+            for name, check in latest.items()
             if check.get("status") == "completed" and check.get("conclusion") not in PASSING_CONCLUSIONS
         ]
         combined = self.request("GET", self.repo(f"/commits/{sha}/status"), None)
+        contexts = set(latest)
         for status in combined.get("statuses") or []:
+            context = status.get("context", "status")
+            contexts.add(context)
             if status.get("state") == "pending":
-                pending.append(status.get("context", "status"))
+                pending.append(context)
             elif status.get("state") != "success":
-                failed.append(status.get("context", "status"))
+                failed.append(context)
+        # Un check requerido que todavía no aparece cuenta como pendiente: su
+        # workflow puede no haber arrancado.
+        pending += [context for context in self.required if context not in contexts]
         return pending, failed
 
     def wait_for_checks(self, sha: str, wait: float) -> None:
+        self.required = self.required_checks()
         deadline = self.clock() + wait
         while True:
             pending, failed = self.check_state(sha)
