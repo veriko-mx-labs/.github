@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from verify_authorship import error, main, run
+from verify_authorship import error, main, run, run_push
 
 ORGANIZATION = ("Veriko", "soporte@veriko.mx")
 BOT = ("dependabot[bot]", "49699333+dependabot[bot]@users.noreply.github.com")
@@ -298,6 +298,41 @@ class EventTest(RepositoryTestCase):
         self.assertEqual(2, run(self.repo.root, event, "").exit_code)
 
 
+class PushTest(RepositoryTestCase):
+    def push(self, before):
+        return {"ref": "refs/heads/main", "before": before, "after": self.repo.git("rev-parse", "HEAD")}
+
+    def test_accepts_organization_commits(self):
+        self.repo.commit({"a.txt": "a\n"}, "Añadir a")
+        self.repo.commit({"b.txt": "b\n"}, "Añadir b")
+        outcome = run_push(self.repo.root, self.push(self.repo.base))
+        self.assertEqual(0, outcome.exit_code)
+        self.assertEqual(["Autoría verificada: 2 commits."], outcome.lines)
+
+    def test_rejects_web_committer_and_bot(self):
+        for author, committer in ((ORGANIZATION, WEB), (BOT, BOT), (STRANGER, ORGANIZATION)):
+            with self.subTest(author=author, committer=committer):
+                before = self.repo.git("rev-parse", "HEAD")
+                self.repo.commit({"c.txt": f"{author[0]}{committer[0]}\n"}, "Cambio", author, committer)
+                outcome = run_push(self.repo.root, self.push(before))
+                self.assertEqual(1, outcome.exit_code)
+                self.assertIn("no permitido", outcome.lines[0])
+
+    def test_rejects_trailer(self):
+        self.repo.commit({"a.txt": "a\n"}, "Cambio\n\nCo-authored-by: x <y@z>")
+        outcome = run_push(self.repo.root, self.push(self.repo.base))
+        self.assertEqual(1, outcome.exit_code)
+
+    def test_new_branch_checks_its_head(self):
+        outcome = run_push(self.repo.root, self.push("0" * 40))
+        self.assertEqual(["Autoría verificada: 1 commit."], outcome.lines)
+
+    def test_only_main(self):
+        event = self.push(self.repo.base)
+        event["ref"] = "refs/heads/otra"
+        self.assertEqual(2, run_push(self.repo.root, event).exit_code)
+
+
 class AnnotationTest(unittest.TestCase):
     def test_escapes_workflow_command_characters(self):
         self.assertEqual("::error file=a%2Cb%3Ac,line=3::uno%0Ados%25", error("uno\ndos%", file="a,b:c", line=3))
@@ -337,12 +372,21 @@ class MainTest(RepositoryTestCase):
         self.assertEqual(2, code)
         self.assertEqual(error("La configuración de la organización no es válida (línea 1).") + "\n", output)
 
-    def test_only_runs_on_pull_request_events(self):
-        for event_name in ("pull_request_target", "push", "workflow_dispatch"):
+    def test_only_runs_on_pull_request_and_push_events(self):
+        for event_name in ("pull_request_target", "workflow_dispatch"):
             with self.subTest(event_name=event_name):
                 code, output, _ = self.call(self.repo.event(), event_name=event_name)
                 self.assertEqual(2, code)
-                self.assertEqual(error("Esta comprobación sólo se ejecuta en eventos pull_request.") + "\n", output)
+                self.assertEqual(
+                    error("Esta comprobación sólo se ejecuta en eventos pull_request y push.") + "\n", output
+                )
+
+    def test_push_event_checks_main(self):
+        self.repo.commit({"a.txt": "a\n"}, "Añadir a")
+        event = {"ref": "refs/heads/main", "before": self.repo.base, "after": self.repo.git("rev-parse", "HEAD")}
+        code, output, _ = self.call(event, event_name="push")
+        self.assertEqual(0, code)
+        self.assertEqual("Autoría verificada: 1 commit.\n", output)
 
 
 if __name__ == "__main__":

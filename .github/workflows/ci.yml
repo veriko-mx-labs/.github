@@ -40,11 +40,14 @@ jobs:
       - name: Comprobación de autoría
         run: python -m unittest discover -s actions/verify-authorship -p 'test_*.py' -v
 
+      - name: Fusión por avance rápido
+        run: python -m unittest discover -s actions/fusionar -p 'test_*.py' -v
+
       - name: Verificador de acciones fijadas
         run: python -m unittest discover -s ci -p 'test_*.py' -v
 
   autoria:
-    if: github.event_name == 'pull_request'
+    if: github.event_name != 'workflow_dispatch'
     uses: ./.github/workflows/autoria.yml
     secrets:
       config: ${{ secrets.VERIKO_LABS_AUTORIA_CONFIG }}

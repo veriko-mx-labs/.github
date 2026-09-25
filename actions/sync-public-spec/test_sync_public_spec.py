@@ -195,6 +195,14 @@ class SyncPublicSpecTest(unittest.TestCase):
         self.log_file = self.tmp / "gh.log"
         self.log_file.write_text("", encoding="utf-8")
 
+        self.fusionar = self.tmp / "fusionar.py"
+        self.fusionar.write_text(
+            "import os, sys\n"
+            "with open(os.environ['FAKE_GH_LOG'], 'a', encoding='utf-8') as log:\n"
+            "    log.write('CALL: fusionar ' + ' '.join(sys.argv[1:]) + '\\n')\n",
+            encoding="utf-8",
+        )
+
         self.env = {
             **os.environ,
             "PATH": f"{self.bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
@@ -209,6 +217,7 @@ class SyncPublicSpecTest(unittest.TestCase):
             "REVIEWERS": "",
             "SUMMARY_FILE": "",
             "VALIDATOR": str(VALIDATOR),
+            "FUSIONAR": str(self.fusionar),
             "FAKE_GH_LOG": str(self.log_file),
             "FAKE_GH_PR_NUMBER": "",
             "FAKE_GH_CHECKS_JSON": '[{"name":"job","bucket":"pass","link":"x","workflow":"CI"}]',
@@ -267,9 +276,9 @@ class SyncPublicSpecTest(unittest.TestCase):
 
         # Un borrador nunca se marca como listo ni se fusiona.
         self.assertNotIn("pr ready", log)
-        self.assertNotIn("CALL: pr merge", log)
+        self.assertNotIn("CALL: fusionar", log)
 
-    # -- auto-merge en verde, sin borrador ------------------------------
+    # -- fusión en verde, sin borrador ------------------------------
 
     def test_green_check_with_auto_merge_merges_and_skips_draft_flag(self) -> None:
         result = self._run(AUTO_MERGE="true", DRAFT="false")
@@ -279,7 +288,8 @@ class SyncPublicSpecTest(unittest.TestCase):
         create_calls = [line for line in log.splitlines() if line.startswith("CALL: pr create")]
         self.assertEqual(len(create_calls), 1)
         self.assertNotIn("--draft", create_calls[0])
-        self.assertIn("CALL: pr merge", log)
+        self.assertIn("CALL: fusionar --pr 99 --esperar 600", log)
+        self.assertNotIn("CALL: pr merge", log)
 
     # -- un PR existente no vuelve a pedir revisores ni se marca listo ------
 

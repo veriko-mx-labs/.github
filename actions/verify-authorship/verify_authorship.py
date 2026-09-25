@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Comprueba la autoría de los commits de un pull request y su contenido."""
+"""Comprueba la autoría de los commits de un pull request o de main, y su contenido."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ ORGANIZATION_IDENTITY = ("Veriko", "soporte@veriko.mx")
 WEB_COMMITTER = ("GitHub", "noreply@github.com")
 BOT_EMAIL_SUFFIX = "[bot]@users.noreply.github.com"
 CONFIG_VARIABLE = "AUTORIA_CONFIG"
+MAIN_REF = "refs/heads/main"
 FULL_SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 IDENTITY_HEADER = re.compile(r"^(?P<name>.*) <(?P<email>[^<>]*)> \d+ [+-]\d{4}$")
 TRAILER = re.compile(r"^\s*co-authored-by:", re.IGNORECASE)
@@ -263,6 +264,42 @@ def run(repo: Path, event: dict[str, Any], config: str) -> Outcome:
     return outcome
 
 
+def run_push(repo: Path, event: dict[str, Any]) -> Outcome:
+    """En main sólo entra la identidad de la organización, como autor y como committer."""
+    if event.get("ref") != MAIN_REF:
+        return Outcome(2, [error("Esta comprobación sólo revisa los push a main.")])
+    before = str(event.get("before", ""))
+    after = str(event.get("after", ""))
+    if not FULL_SHA.match(before) or not FULL_SHA.match(after):
+        return Outcome(2, [error("El evento no trae los commits del push.")])
+
+    try:
+        if set(before) == {"0"}:
+            commits = [read_commit(repo, after)]
+        else:
+            commits = list_commits(repo, before, after)
+    except HistoryError:
+        return Outcome(2, [error("No se pudo leer el historial del push.")])
+
+    found: list[str] = []
+    for commit in commits:
+        for role, identity in (("autor", commit.author), ("committer", commit.committer)):
+            if (identity[0], identity[1].lower()) != ORGANIZATION_IDENTITY:
+                found.append(error(f"commit {commit.short}: {role} no permitido: {identity[0]} <{identity[1]}>"))
+        for number in trailer_lines(commit.message):
+            found.append(error(f"commit {commit.short}, mensaje, línea {number}: trailer no permitido"))
+
+    outcome = Outcome(1 if found else 0, commits=len(commits), findings=len(found))
+    if found:
+        outcome.lines += found[:MAX_REPORTED]
+        if len(found) > MAX_REPORTED:
+            outcome.lines.append(error(f"Se omiten {len(found) - MAX_REPORTED} hallazgos más."))
+    else:
+        noun = "commit" if len(commits) == 1 else "commits"
+        outcome.lines.append(f"Autoría verificada: {len(commits)} {noun}.")
+    return outcome
+
+
 def write_summary(outcome: Outcome) -> None:
     path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not path:
@@ -286,12 +323,16 @@ def main(argv: list[str] | None = None) -> int:
     if reconfigure is not None:
         reconfigure(encoding="utf-8")
 
-    if os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
-        print(error("Esta comprobación sólo se ejecuta en eventos pull_request."))
+    event_name = os.environ.get("GITHUB_EVENT_NAME")
+    if event_name not in ("pull_request", "push"):
+        print(error("Esta comprobación sólo se ejecuta en eventos pull_request y push."))
         return 2
 
     event = json.loads(Path(args.event).read_text(encoding="utf-8"))
-    outcome = run(args.repo, event, os.environ.get(CONFIG_VARIABLE, ""))
+    if event_name == "push":
+        outcome = run_push(args.repo, event)
+    else:
+        outcome = run(args.repo, event, os.environ.get(CONFIG_VARIABLE, ""))
     for line in outcome.lines:
         print(line)
     write_summary(outcome)

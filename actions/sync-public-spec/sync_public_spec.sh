@@ -11,7 +11,7 @@ readonly REVIEWERS="${REVIEWERS:-}"
 readonly SUMMARY_FILE="${SUMMARY_FILE:-}"
 
 if [[ "$AUTO_MERGE" == 'true' && "$DRAFT" == 'true' ]]; then
-  echo '::error::auto_merge y draft no pueden ser true a la vez: el auto-merge no aplica a un borrador.' >&2
+  echo '::error::auto_merge y draft no pueden ser true a la vez: un borrador no se fusiona.' >&2
   exit 1
 fi
 
@@ -196,11 +196,8 @@ EOF
   gh pr edit "$pr_number" --repo "$GITHUB_REPOSITORY" --body-file "$body_file"
 
   if [[ "$AUTO_MERGE" == 'true' ]]; then
-    gh pr merge "$pr_number" \
-      --repo "$GITHUB_REPOSITORY" \
-      --auto \
-      --squash \
-      --delete-branch
+    python "$FUSIONAR" --pr "$pr_number" --esperar 600
+    git push origin --delete "$SYNC_BRANCH" || true
   fi
   exit 0
 fi
