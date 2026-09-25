@@ -51,6 +51,9 @@ on:
         required: true
       app_private_key:
         required: true
+      reviewers:
+        description: Revisores del PR, igual que el input reviewers; se usa cuando el input queda vacío.
+        required: false
 
 permissions:
   contents: read
@@ -173,7 +176,7 @@ jobs:
           BASE_BRANCH: ${{ inputs.base_branch }}
           AUTO_MERGE: ${{ inputs.auto_merge }}
           DRAFT: ${{ inputs.draft }}
-          REVIEWERS: ${{ inputs.reviewers }}
+          REVIEWERS: ${{ inputs.reviewers || secrets.reviewers }}
           SUMMARY_FILE: ${{ inputs.summary_file }}
         run: |
           set -euo pipefail
