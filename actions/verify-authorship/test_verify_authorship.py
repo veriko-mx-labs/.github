@@ -282,6 +282,35 @@ class ContentTest(RepositoryTestCase):
         self.assertEqual(1, outcome.exit_code)
         self.assertEqual(error("Contenido no permitido", file="b.txt", line=1), outcome.lines[-1])
 
+    def test_organization_repository_skips_its_tooling_in_the_tree(self):
+        self.repo.commit({"actions/guard/patrones.py": f"{TOKEN}\n", "docs/nota.md": "Texto limpio.\n"}, "Añadir guard")
+        event = self.repo.event()
+        event["repository"] = {"name": ".github", "full_name": "organizacion/.github"}
+        outcome = self.check(event, CONFIG)
+        self.assertEqual(0, outcome.exit_code)
+        self.assertEqual(["Autoría verificada: 1 commit."], outcome.lines)
+
+    def test_organization_repository_still_scans_the_rest(self):
+        self.repo.commit({"actions/guard/patrones.py": f"{TOKEN}\n", "docs/nota.md": f"{TOKEN}\n"}, "Añadir guard")
+        event = self.repo.event(title=f"Ajuste {TOKEN}")
+        event["repository"] = {"name": ".github", "full_name": "organizacion/.github"}
+        outcome = self.check(event, CONFIG)
+        self.assertEqual(
+            [
+                "Autoría verificada: 1 commit.",
+                error("pull request, título: contenido no permitido"),
+                error("Contenido no permitido", file="docs/nota.md", line=1),
+            ],
+            outcome.lines,
+        )
+
+    def test_other_repositories_scan_the_tooling_path(self):
+        self.repo.commit({"actions/guard/patrones.py": f"{TOKEN}\n"}, "Añadir guard")
+        event = self.repo.event()
+        event["repository"] = {"name": "veriko-js", "full_name": "organizacion/veriko-js"}
+        outcome = self.check(event, CONFIG)
+        self.assertEqual(error("Contenido no permitido", file="actions/guard/patrones.py", line=1), outcome.lines[-1])
+
     def test_authorship_and_content_findings_come_together(self):
         self.repo.commit({"a.txt": f"{TOKEN}\n"}, "Añadir a", author=STRANGER, committer=ORGANIZATION)
         outcome = self.check(config=CONFIG)

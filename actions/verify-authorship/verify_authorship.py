@@ -25,6 +25,11 @@ TRAILER = re.compile(r"^\s*co-authored-by:", re.IGNORECASE)
 MAX_FILE_BYTES = 2 * 1024 * 1024
 BINARY_PROBE_BYTES = 8000
 MAX_REPORTED = 200
+# El repositorio de la organización guarda el código de estas comprobaciones, que nombra
+# a propósito lo que buscan. Ese código no entra en el escaneo del árbol; los títulos,
+# los cuerpos, los mensajes, la rama y el resto de los archivos sí.
+ORGANIZATION_REPOSITORY = ".github"
+ORGANIZATION_TOOLING = ("actions/",)
 
 
 class ConfigError(Exception):
@@ -196,10 +201,14 @@ def tree_files(repo: Path, sha: str) -> list[tuple[str, str, int]]:
     return files
 
 
-def check_tree(rules: list[re.Pattern[str]], repo: Path, sha: str) -> tuple[list[str], int]:
+def check_tree(
+    rules: list[re.Pattern[str]], repo: Path, sha: str, skipped: tuple[str, ...] = ()
+) -> tuple[list[str], int]:
     found: list[str] = []
     scanned = 0
     for path, oid, size in tree_files(repo, sha):
+        if path.startswith(skipped):
+            continue
         if matching_lines(rules, path):
             found.append(error("Contenido no permitido", file=path))
         if size > MAX_FILE_BYTES:
@@ -216,6 +225,11 @@ def check_tree(rules: list[re.Pattern[str]], repo: Path, sha: str) -> tuple[list
 def opened_by_bot(pull_request: dict[str, Any]) -> bool:
     user = pull_request.get("user") or {}
     return user.get("type") == "Bot" or str(user.get("login", "")).endswith("[bot]")
+
+
+def exempt_paths(event: dict[str, Any]) -> tuple[str, ...]:
+    name = str((event.get("repository") or {}).get("name", ""))
+    return ORGANIZATION_TOOLING if name == ORGANIZATION_REPOSITORY else ()
 
 
 def run(repo: Path, event: dict[str, Any], config: str) -> Outcome:
@@ -246,7 +260,7 @@ def run(repo: Path, event: dict[str, Any], config: str) -> Outcome:
             content += check_text(rules, pull_request, commits)
         content += check_branch(rules, pull_request)
         try:
-            tree_findings, outcome.files = check_tree(rules, repo, head)
+            tree_findings, outcome.files = check_tree(rules, repo, head, exempt_paths(event))
         except HistoryError:
             return Outcome(2, [error("No se pudo leer el árbol del pull request.")])
         content += tree_findings
