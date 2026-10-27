@@ -1,0 +1,21 @@
+name: Fusionar
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Número del pull request.
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  fusionar:
+    uses: ./.github/workflows/fusionar-como-veriko.yml
+    with:
+      pr: ${{ fromJSON(inputs.pr) }}
+    secrets:
+      app_id: ${{ secrets.VERIKO_LABS_APP_ID }}
+      app_private_key: ${{ secrets.VERIKO_LABS_PRIVATE_KEY }}
