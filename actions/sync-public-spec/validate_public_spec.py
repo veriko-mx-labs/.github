@@ -16,6 +16,7 @@ FORBIDDEN_EXTENSIONS = {
     "x-admin-notes",
     "x-auth",
     "x-integration",
+    "x-alias-of",
 }
 
 

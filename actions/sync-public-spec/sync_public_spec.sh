@@ -30,6 +30,8 @@ curl --fail --location --silent --show-error \
   --output "$downloaded_spec" \
   "$SPEC_URL"
 
+script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+python "${STRIP_ALIASES:-$script_directory/strip_aliases.py}" "$downloaded_spec"
 python "$VALIDATOR" "$downloaded_spec"
 
 maintain_schedule() {

@@ -52,6 +52,7 @@ class PublicSpecValidationTest(unittest.TestCase):
             "x-admin-notes",
             "x-auth",
             "x-integration",
+            "x-alias-of",
         ):
             with self.subTest(extension=extension):
                 document = public_spec()
