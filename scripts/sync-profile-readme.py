@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Renderiza el README del perfil de la organización desde la plantilla del monorepo.
+"""Renderiza el README del perfil de la organización desde la plantilla del repositorio veriko.
 
-Lee `brand/redes-sociales/github/README.md` del checkout del monorepo, extrae el
+Lee `brand/redes-sociales/github/README.md` del checkout del repositorio veriko, extrae el
 README citado (el bloque de líneas `> ` que contiene `# Veriko`), sustituye `<org>`
 por la organización y lo escribe en `profile/README.md` del repo `.github`, junto
 con las tres imágenes (`hero.png`, `hero-dark.png`, `kpi.png`).
 
-La regla de extracción es la misma que la del candado del monorepo
+La regla de extracción es la misma que la del candado del repositorio veriko
 (`tests/contract/GitHub/ProfileReadmeExampleMatchesSpecTest.php`): el bloque
 citado que contiene la línea `# Veriko`.
 
 Uso:
-    python3 scripts/sync-profile-readme.py --monorepo monorepo --profile profile --org veriko-mx-labs
+    python3 scripts/sync-profile-readme.py --repo veriko --profile profile --org veriko-mx-labs
 
 Imprime `changed=true` o `changed=false` y, si existe `GITHUB_OUTPUT`, lo escribe
 ahí para que el workflow decida si abre el PR. Sale con 1 si falta la plantilla,
@@ -60,12 +60,12 @@ def sha(path: str) -> str | None:
 def main() -> int:
     args = argparse.Namespace()  # replaced below; keeps type checkers quiet
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--monorepo", required=True, help="Checkout del monorepo (privado).")
+    parser.add_argument("--repo", required=True, help="Checkout del repositorio veriko (privado).")
     parser.add_argument("--profile", required=True, help="Carpeta profile/ del repo .github.")
     parser.add_argument("--org", required=True, help="Organización, p. ej. veriko-mx-labs.")
     args = parser.parse_args()
 
-    template_path = os.path.join(args.monorepo, TEMPLATE)
+    template_path = os.path.join(args.repo, TEMPLATE)
     if not os.path.isfile(template_path):
         print(f"Falta la plantilla: {template_path}", file=sys.stderr)
         return 1
@@ -81,7 +81,7 @@ def main() -> int:
 
     outputs: dict[str, bytes] = {"README.md": readme.encode("utf-8")}
     for source, dest in IMAGES:
-        source_path = os.path.join(args.monorepo, source)
+        source_path = os.path.join(args.repo, source)
         if not os.path.isfile(source_path):
             print(f"Falta la imagen: {source_path}", file=sys.stderr)
             return 1

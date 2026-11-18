@@ -12,8 +12,7 @@ name: Sincronizar el README del perfil
 #
 # No hay auto-fusión: el PR queda abierto para revisarlo y fusionarlo con
 # fusionar.yml, como cualquier otro cambio del perfil. El texto ya viene
-# aprobado por el owner en el PR del repositorio veriko (R-73); el sync
-# solo lo aplica.
+# aprobado en el PR del repositorio veriko; el sync solo lo aplica.
 on:
   schedule:
     - cron: '30 10 * * *'
@@ -55,7 +54,7 @@ jobs:
 
       - name: Renderizar el README del perfil
         id: render
-        run: python3 scripts/sync-profile-readme.py --monorepo veriko --profile profile --org veriko-mx-labs
+        run: python3 scripts/sync-profile-readme.py --repo veriko --profile profile --org veriko-mx-labs
 
       - name: Abrir el PR si algo cambió
         if: steps.render.outputs.changed == 'true'
@@ -70,7 +69,7 @@ jobs:
           al perfil de la organización, con sus tres imágenes
           (\`hero.png\`, \`hero-dark.png\`, \`kpi.png\`).
 
-          El texto viene aprobado por el owner en el PR del repositorio veriko (R-73);
+          El texto viene aprobado en el PR del repositorio veriko;
           este PR solo lo aplica. Para fusionarlo: \`fusionar.yml\` con el PR.
           EOF
           git config user.name 'veriko-labs[bot]'
