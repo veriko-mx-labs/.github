@@ -1,0 +1,96 @@
+name: Sincronizar el README del perfil
+
+# Aplica la plantilla del README de presentación del repositorio veriko
+# (brand/redes-sociales/github/README.md) al perfil de la organización
+# (profile/README.md de este repo), con sus tres imágenes.
+#
+# La plantilla vive en el repositorio privado veriko, así que este workflow
+# necesita leerlo: la App veriko-labs tiene que estar instalada también en
+# ese repositorio (solo lectura de contenido) y el token se pide para los
+# dos repositorios. Sin esa instalación, el clon falla y el workflow se
+# pone rojo: no escribe nada a medias.
+#
+# No hay auto-fusión: el PR queda abierto para revisarlo y fusionarlo con
+# fusionar.yml, como cualquier otro cambio del perfil. El texto ya viene
+# aprobado por el owner en el PR del repositorio veriko (R-73); el sync
+# solo lo aplica.
+on:
+  schedule:
+    - cron: '30 10 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Crear un token efímero de veriko-labs
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.VERIKO_LABS_APP_ID }}
+          private-key: ${{ secrets.VERIKO_LABS_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.repository }},veriko-mx-labs/veriko
+          permission-contents: write
+          permission-pull-requests: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Traer la plantilla y las imágenes del repositorio veriko
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --filter=blob:none --sparse \
+            "https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/veriko-mx-labs/veriko.git" \
+            veriko
+          git -C veriko sparse-checkout set \
+            brand/redes-sociales/github \
+            brand/redes-sociales/linkedin/linkedin-portada-a-veredicto.png
+
+      - name: Renderizar el README del perfil
+        id: render
+        run: python3 scripts/sync-profile-readme.py --monorepo veriko --profile profile --org veriko-mx-labs
+
+      - name: Abrir el PR si algo cambió
+        if: steps.render.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          template_sha="$(git -C veriko rev-parse HEAD)"
+          cat > /tmp/pr-body.md <<EOF
+          Aplica la plantilla del README de presentación del repositorio veriko
+          (\`brand/redes-sociales/github/README.md\` en \`$template_sha\`)
+          al perfil de la organización, con sus tres imágenes
+          (\`hero.png\`, \`hero-dark.png\`, \`kpi.png\`).
+
+          El texto viene aprobado por el owner en el PR del repositorio veriko (R-73);
+          este PR solo lo aplica. Para fusionarlo: \`fusionar.yml\` con el PR.
+          EOF
+          git config user.name 'veriko-labs[bot]'
+          git config user.email '330955500+veriko-labs[bot]@users.noreply.github.com'
+          pr_number="$(gh pr list --head automation/sync-profile-readme --base main --state open --json number --jq '.[0].number // empty')"
+          if [[ -n "$pr_number" ]]; then
+            git fetch --quiet origin automation/sync-profile-readme
+            git switch --force-create automation/sync-profile-readme origin/automation/sync-profile-readme
+          else
+            git switch --force-create automation/sync-profile-readme origin/main
+          fi
+          git add profile
+          if git diff --cached --quiet; then
+            echo 'El PR ya lleva estos cambios; nada que hacer.'
+            exit 0
+          fi
+          git commit --message 'Sincronizar el README del perfil'
+          git push --force-with-lease origin HEAD:automation/sync-profile-readme
+          if [[ -z "$pr_number" ]]; then
+            gh pr create --base main --head automation/sync-profile-readme --title 'Sincronizar el README del perfil' --body-file /tmp/pr-body.md
+          else
+            gh pr edit "$pr_number" --body-file /tmp/pr-body.md
+          fi
