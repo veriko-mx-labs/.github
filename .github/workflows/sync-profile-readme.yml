@@ -48,7 +48,7 @@ jobs:
           git clone --depth 1 --filter=blob:none --sparse \
             "https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/veriko-mx-labs/veriko.git" \
             veriko
-          git -C veriko sparse-checkout set \
+          git -C veriko sparse-checkout set --no-cone \
             brand/redes-sociales/github \
             brand/redes-sociales/linkedin/linkedin-portada-a-veredicto.png
 
@@ -62,10 +62,9 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
-          template_sha="$(git -C veriko rev-parse HEAD)"
           cat > /tmp/pr-body.md <<EOF
           Aplica la plantilla del README de presentación del repositorio veriko
-          (\`brand/redes-sociales/github/README.md\` en \`$template_sha\`)
+          (\`brand/redes-sociales/github/README.md\`)
           al perfil de la organización, con sus tres imágenes
           (\`hero.png\`, \`hero-dark.png\`, \`kpi.png\`).
 
