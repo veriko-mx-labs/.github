@@ -70,7 +70,7 @@ Sin instalar nada: sube tus pagos, revisa tus finanzas y operaciones desde un so
 | Canal | Contacto |
 | --- | --- |
 | WhatsApp | [+52 220 589 9701](https://wa.me/522205899701) (ventas y soporte) |
-| Facebook | [Veriko MX](https://www.facebook.com/profile.php?id=617033898164727) |
+| Facebook | [Veriko MX](https://www.facebook.com/veriko.mx) |
 | Instagram | [@veriko.mx](https://www.instagram.com/veriko.mx) |
 | Correo | [soporte@veriko.mx](mailto:soporte@veriko.mx) |
 | Teléfono | [+52 220 589 9701](tel:+522205899701) |
