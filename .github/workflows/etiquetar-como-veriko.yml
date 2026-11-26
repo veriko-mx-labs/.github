@@ -1,0 +1,89 @@
+name: Etiquetar como veriko-labs
+
+on:
+  workflow_call:
+    inputs:
+      etiqueta:
+        description: Etiqueta de versión que se crea, por ejemplo v0.8.2.
+        required: true
+        type: string
+      sha:
+        description: SHA completo del commit que se etiqueta. Debe ser la cabeza actual de main.
+        required: true
+        type: string
+    secrets:
+      app_id:
+        required: true
+      app_private_key:
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: etiquetar-${{ github.repository }}
+  cancel-in-progress: false
+
+# Crea una etiqueta anotada con veriko-labs[bot] como autor. La regla «tags v*» de los
+# satélites solo deja crear etiquetas a la App, y una etiqueta creada con su token
+# dispara el workflow de publicación del repositorio.
+jobs:
+  etiquetar:
+    name: Etiquetar como veriko-labs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validar la entrada
+        shell: bash
+        env:
+          ETIQUETA: ${{ inputs.etiqueta }}
+          SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$ETIQUETA" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::La etiqueta '$ETIQUETA' no tiene la forma vX.Y.Z."
+            exit 1
+          fi
+          if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::'$SHA' no es un SHA completo."
+            exit 1
+          fi
+
+      - name: Crear un token efímero de veriko-labs
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.app_id }}
+          private-key: ${{ secrets.app_private_key }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Crear la etiqueta
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          ETIQUETA: ${{ inputs.etiqueta }}
+          SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          main="$(gh api "repos/$REPO/git/ref/heads/main" --jq .object.sha)"
+          if [[ "$main" != "$SHA" ]]; then
+            echo "::error::main está en $main, no en $SHA. Solo se etiqueta la cabeza de main."
+            exit 1
+          fi
+          if gh api "repos/$REPO/git/ref/tags/$ETIQUETA" --silent 2>/dev/null; then
+            echo "::error::La etiqueta $ETIQUETA ya existe."
+            exit 1
+          fi
+          objeto="$(gh api "repos/$REPO/git/tags" \
+            -f tag="$ETIQUETA" \
+            -f message="$ETIQUETA" \
+            -f object="$SHA" \
+            -f type=commit \
+            -f 'tagger[name]=veriko-labs[bot]' \
+            -f 'tagger[email]=330955500+veriko-labs[bot]@users.noreply.github.com' \
+            --jq .sha)"
+          gh api "repos/$REPO/git/refs" -f ref="refs/tags/$ETIQUETA" -f sha="$objeto" --silent
+          echo "Etiqueta $ETIQUETA creada sobre $SHA (objeto $objeto)."
